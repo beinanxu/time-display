@@ -26,6 +26,8 @@ class Config:
     FG_ACCENT = "#6FA8FF"   # 当前模式高亮
     FG_TIMER = "#FFB454"    # 定时数字
     FG_STOPWATCH = "#7DE0B0"  # 秒表数字
+    FG_MARK = "#C79BFF"     # 打点数字
+    FG_NODE = "#8A8A99"     # 节点列表
     FG_ALERT = "#FF5C5C"    # 定时到点的数字
 
     # ---------------- 字体 ----------------
@@ -35,14 +37,18 @@ class Config:
     DATE_SIZE = 11
     SUB_SIZE = 10
     HINT_SIZE = 9
+    NODE_SIZE = 10          # 打点模式下节点列表的字号
 
     # ---------------- 行为 ----------------
-    START_MODE = "clock"      # clock / timer / stopwatch
+    START_MODE = "mark"       # 命令行启动时的默认模式：clock / timer / stopwatch / mark
     SHOW_SECONDS = True
     DATE_FORMAT = "%Y年%m月%d日 %A"   # %A 会显示成 周一/周二…
     SOUND = True              # 定时到点响铃
     TTS = False               # 定时到点用系统语音念一句
     TTS_TEXT = "时间到，休息一下"
+
+    # ---------------- 打点 ----------------
+    NODE_ROWS = 3             # 面板上最多显示几个最近的节点
 
     # ---------------- 定时 ----------------
     TIMER_MINUTES = 25        # 默认倒计时长度
@@ -52,3 +58,4 @@ class Config:
     HOTKEY_CYCLE = "Ctrl+Alt+A"    # 循环切换模式
     HOTKEY_TOGGLE = "Ctrl+Alt+S"   # 开始 / 暂停
     HOTKEY_RESET = "Ctrl+Alt+R"    # 复位
+    HOTKEY_MARK = "Ctrl+Alt+M"     # 打点（只在打点模式生效）

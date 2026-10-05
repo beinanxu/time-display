@@ -49,7 +49,8 @@ from config import Config  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-VK = {"A": 0x41, "S": 0x53, "R": 0x52, "T": 0x54, "C": 0x43}
+VK = {"A": 0x41, "S": 0x53, "R": 0x52, "T": 0x54, "C": 0x43, "M": 0x4D,
+      "SPACE": 0x20, "空格": 0x20}
 MODS = {"CTRL": utils.MOD_CONTROL, "ALT": utils.MOD_ALT, "SHIFT": utils.MOD_SHIFT}
 
 
@@ -105,6 +106,12 @@ class ClockApp:
         self.sw_last_tick = None
         self.laps = []
 
+        # 打点（节点计时）：点一下定一个节点，大字显示距离上一个节点过去了多久
+        self.mark_elapsed = 0.0
+        self.mark_last_tick = None
+        self.nodes = []          # [{'total': 累计秒, 'delta': 距上一节点秒}]
+        self._last_node_elapsed = 0.0
+
         self._last_second = -1
         self._last_text = None
         self.hidden = False
@@ -125,6 +132,8 @@ class ClockApp:
                                  size=int(self.cfg.DATE_SIZE), weight="bold")
         self.f_hint = tkfont.Font(family=self.cfg.DATE_FONT,
                                   size=int(self.cfg.HINT_SIZE))
+        self.f_node = tkfont.Font(family=self.cfg.TIME_FONT,
+                                  size=int(self.cfg.NODE_SIZE))
 
         self.sw = self.root.winfo_screenwidth()
         self.sh = self.root.winfo_screenheight()
@@ -157,7 +166,8 @@ class ClockApp:
         tabs = tk.Frame(self.body, bg=bg)
         tabs.pack(anchor="center", pady=(8, 0))
         self.tab_labels = {}
-        for key, text in (("clock", "时钟"), ("timer", "定时"), ("stopwatch", "秒表")):
+        for key, text in (("clock", "时钟"), ("timer", "定时"),
+                          ("stopwatch", "秒表"), ("mark", "打点")):
             lab = tk.Label(tabs, text=text, font=self.f_tab, bg=bg, fg=self.cfg.FG_DIM,
                            padx=7, cursor="hand2")
             lab.pack(side="left")
@@ -176,11 +186,16 @@ class ClockApp:
                                  bg=bg, fg=self.cfg.FG_HINT)
         self.lbl_hint.pack(anchor="center", padx=18, pady=(0, 8))
 
+        # 打点模式的节点列表（只在打点模式显示）
+        self.lbl_nodes = tk.Label(self.body, text="", font=self.f_node,
+                                  bg=bg, fg=self.cfg.FG_NODE, justify="left")
+
         for w in (self.win, self.border, self.body, self.lbl_time,
                   self.lbl_sub, self.lbl_hint):
             w.bind("<ButtonPress-1>", self.drag_start)
             w.bind("<B1-Motion>", self.drag_move)
             w.bind("<Double-Button-1>", self.toggle_hide)
+        self.win.bind("<Button-1>", self.on_panel_click, add="+")
 
         self.root.bind_all("<Tab>", lambda e: self.cycle_mode())
         self.root.bind_all("<space>", lambda e: self.toggle_run())
@@ -188,6 +203,10 @@ class ClockApp:
         self.root.bind_all("<Key-R>", lambda e: self.reset())
         self.root.bind_all("<Key-l>", lambda e: self.lap())
         self.root.bind_all("<Key-L>", lambda e: self.lap())
+        self.root.bind_all("<Key-m>", lambda e: self.new_node())
+        self.root.bind_all("<Key-M>", lambda e: self.new_node())
+        self.root.bind_all("<Key-c>", lambda e: self.copy_nodes())
+        self.root.bind_all("<Key-C>", lambda e: self.copy_nodes())
         self.root.bind_all("<Up>", lambda e: self.add_minutes(1))
         self.root.bind_all("<Down>", lambda e: self.add_minutes(-1))
         self.root.bind_all("<Shift-Up>", lambda e: self.add_minutes(5))
@@ -219,7 +238,7 @@ class ClockApp:
         self.apply_mode()
 
     def cycle_mode(self):
-        order = ["clock", "timer", "stopwatch"]
+        order = ["clock", "timer", "stopwatch", "mark"]
         self.switch_mode(order[(order.index(self.mode) + 1) % len(order)])
 
     def apply_mode(self, initial=False):
@@ -227,16 +246,30 @@ class ClockApp:
         for key, lab in self.tab_labels.items():
             active = key == self.mode
             lab.configure(fg=self.cfg.FG_ACCENT if active else self.cfg.FG_DIM)
+
+        # 打点模式：单击面板即打点；其他模式：单击不做事
+        if self.mode == "mark":
+            self.win.unbind("<Button-1>")
+            self.win.bind("<Button-1>", self.on_panel_click, add="+")
+            self.lbl_nodes.pack(anchor="center", padx=18, pady=(0, 6))
+        else:
+            self.win.unbind("<Button-1>")
+            self.lbl_nodes.pack_forget()
+
         if self.mode == "clock":
             self.lbl_time.configure(fg=self.cfg.FG, font=self.f_time)
             self.lbl_hint.configure(text="双击隐藏 · Tab 切换 · Ctrl+Alt+A 全局切换")
         elif self.mode == "timer":
             self.lbl_time.configure(fg=self.cfg.FG_TIMER, font=self.f_time)
             self.lbl_hint.configure(text="空格 开始/暂停 · R 复位 · ↑↓ 调整分钟")
-        else:
+        elif self.mode == "stopwatch":
             self.lbl_time.configure(fg=self.cfg.FG_STOPWATCH, font=self.f_time)
             self.lbl_hint.configure(text="空格 开始/暂停 · L 计次 · R 复位")
+        else:
+            self.lbl_time.configure(fg=self.cfg.FG_MARK, font=self.f_time)
+            self.lbl_hint.configure(text="点一下打点 · Ctrl+Alt+M 打点 · C 复制 · R 清空")
         self.lbl_time.configure(bg=bg)
+        self._last_text = None
         self.relayout()
 
     # ------------------------------------------------------------ 主循环
@@ -248,6 +281,10 @@ class ClockApp:
         if self.mode == "stopwatch" and self.sw_last_tick is not None:
             self.sw_elapsed += mono - self.sw_last_tick
             self.sw_last_tick = mono
+
+        if self.mode == "mark" and self.mark_last_tick is not None:
+            self.mark_elapsed += mono - self.mark_last_tick
+            self.mark_last_tick = mono
 
         if self.mode == "timer" and self.timer_deadline is not None:
             if mono >= self.timer_deadline:
@@ -262,6 +299,8 @@ class ClockApp:
             self.lbl_sub.configure(text=sub)
             self._last_text = text
             self._last_second = time.localtime().tm_sec
+        if self.mode == "mark":
+            self.lbl_nodes.configure(text=self.node_list_text())
 
         if finished:
             self.on_finish()
@@ -284,7 +323,41 @@ class ClockApp:
             return hms(left), "倒计时 · {}".format(
                 "运行中" if self.timer_deadline is not None else "已暂停")
 
+        if self.mode == "mark":
+            seg = self.mark_elapsed - self._last_node_elapsed
+            if seg < 0:
+                seg = 0.0
+            # 累计数字定宽，面板不会因为位数变化而抖动
+            total = " {:>9}".format(csec(self.mark_elapsed))
+            if not self.nodes:
+                return csec(seg), "点一下开始 · 总计{}".format(total)
+            idle = int(self.mark_elapsed - (self.nodes[-1]["total"] + seg))
+            if seg > 2.5 and idle > 1.5:
+                state = "已暂停"
+            elif self.mark_last_tick is not None:
+                state = "计时中"
+            else:
+                state = "已暂停"
+            return csec(seg), "距上一个节点 · 第{}个 · 总计{} · {}".format(
+                len(self.nodes), total, state)
+
         return csec(self.sw_elapsed), self.stopwatch_sub()
+
+    def node_list_text(self):
+        if not self.nodes:
+            return ""
+        recent = self.nodes[-self.cfg.NODE_ROWS:]
+        offset = len(self.nodes) - len(recent)
+        lines = []
+        for i, n in enumerate(recent):
+            idx = offset + i + 1
+            prev = self.nodes[idx - 2]["total"] if idx >= 2 else 0.0
+            tag = "起点" if idx == 1 else "+" + csec(n["total"] - prev)
+            width = max(2, len(str(self.cfg.NODE_ROWS + offset)))
+            lines.append("{:>{w}}. {:<9} {}".format(idx, csec(n["total"]), tag, w=width))
+        if len(self.nodes) > len(recent):
+            lines.insert(0, "… 前面还有 {} 个节点".format(offset))
+        return "\n".join(lines)
 
     def stopwatch_sub(self):
         running = "运行中" if self.sw_last_tick is not None else "已暂停"
@@ -331,6 +404,13 @@ class ClockApp:
                     self.timer_remaining = self.cfg.TIMER_MINUTES * 60.0
                 self.timer_finished_at = 0.0
                 self.timer_deadline = mono + self.timer_remaining
+        elif self.mode == "mark":
+            if self.mark_last_tick is None:
+                self.mark_last_tick = mono
+            else:
+                self.mark_elapsed += mono - self.mark_last_tick
+                self.mark_last_tick = None
+            self._last_text = None
         elif self.mode == "clock":
             self.cycle_mode()
 
@@ -344,7 +424,50 @@ class ClockApp:
             self.sw_elapsed = 0.0
             self.sw_last_tick = None
             self.laps = []
+        elif self.mode == "mark":
+            self.mark_elapsed = 0.0
+            self.mark_last_tick = time.monotonic()
+            self.nodes = [{"total": 0.0, "delta": 0.0}]
+            self._last_node_elapsed = 0.0
+            self.lbl_nodes.configure(text="")
         self._last_text = None
+
+    def new_node(self):
+        """打点：记下当前时刻作为新节点，大字重新从 0 开始。"""
+        if self.mode != "mark":
+            return
+        now = time.monotonic()
+        if self.mark_last_tick is not None:
+            self.mark_elapsed += now - self.mark_last_tick
+        self.mark_last_tick = now
+        prev = self.nodes[-1]["total"] if self.nodes else 0.0
+        self.nodes.append({"total": self.mark_elapsed,
+                           "delta": self.mark_elapsed - prev})
+        self._last_node_elapsed = self.mark_elapsed
+        self._last_text = None
+
+    def on_panel_click(self, _e=None):
+        if self.mode == "mark":
+            self.new_node()
+
+    def copy_nodes(self):
+        if self.mode != "mark" or not self.nodes:
+            return
+        lines = ["{} 起，共 {} 个节点".format(self.cfg.APP_NAME, len(self.nodes)),
+                 ""]
+        prev = 0.0
+        for i, n in enumerate(self.nodes, 1):
+            tag = "起点" if i == 1 else "+" + csec(n["total"] - prev)
+            lines.append("#{:<3} 总计 {:<10} {}".format(i, csec(n["total"]), tag))
+            prev = n["total"]
+        text = "\n".join(lines)
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.lbl_hint.configure(text="已复制 {} 个节点到剪贴板".format(len(self.nodes)))
+            self.root.after(1600, lambda: self.apply_mode())
+        except Exception:
+            pass
 
     def lap(self):
         if self.mode != "stopwatch":
@@ -407,6 +530,7 @@ class ClockApp:
             (1, self.cfg.HOTKEY_CYCLE, self.cycle_mode, "cycle"),
             (2, self.cfg.HOTKEY_TOGGLE, self.toggle_run, "toggle"),
             (3, self.cfg.HOTKEY_RESET, self.reset, "reset"),
+            (4, self.cfg.HOTKEY_MARK, self.new_node, "mark"),
         ]
         used = set()
         for hid, text, handler, _name in specs:
@@ -491,7 +615,7 @@ def probe(mode="clock"):
 
 def main():
     ap = argparse.ArgumentParser(description="桌面时间显示器：时钟 / 定时 / 秒表")
-    ap.add_argument("--mode", choices=["clock", "timer", "stopwatch"], default=None)
+    ap.add_argument("--mode", choices=["clock", "timer", "stopwatch", "mark"], default=None)
     ap.add_argument("--minutes", type=float, default=None, help="定时模式的分钟数")
     ap.add_argument("--probe", action="store_true", help="自检并写出 _probe.txt")
     args = ap.parse_args()
@@ -500,7 +624,7 @@ def main():
         probe(args.mode or "clock")
         return
 
-    app = ClockApp(args.mode or Config().START_MODE)
+    app = ClockApp(args.mode or "mark")   # 默认直接进打点模式
     if args.minutes is not None:
         app.timer_remaining = max(0.0, args.minutes * 60.0)
     print("时间显示器已启动，模式 = {}".format(app.mode))
