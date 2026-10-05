@@ -50,7 +50,10 @@ from config import Config  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 VK = {"A": 0x41, "S": 0x53, "R": 0x52, "T": 0x54, "C": 0x43, "M": 0x4D,
-      "SPACE": 0x20, "空格": 0x20}
+      "SPACE": 0x20, "空格": 0x20, "OEM_COMMA": 0xBC, ",": 0xBC,
+      "OEM_PERIOD": 0xBE, ".": 0xBE,
+      "0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34,
+      "5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39}
 MODS = {"CTRL": utils.MOD_CONTROL, "ALT": utils.MOD_ALT, "SHIFT": utils.MOD_SHIFT}
 
 
@@ -87,6 +90,11 @@ def csec(seconds):
     s = (total // 100) % 60
     m = total // 6000
     return "{}:{:02d}.{:02d}".format(m, s, cs)
+
+
+def wall_now():
+    """当前挂钟时间，定宽，防止面板抖动。"""
+    return time.strftime("%H:%M:%S")
 
 
 class ClockApp:
@@ -314,14 +322,10 @@ class ClockApp:
             return time.strftime(fmt, lt), self.date_text(lt)
 
         if self.mode == "timer":
-            left = (self.timer_deadline - mono) if self.timer_deadline is not None \
-                else self.timer_remaining
-            state = "运行中" if self.timer_deadline is not None else (
-                "已暂停" if 0 < left < self.timer_remaining or left == 0 else "待开始")
-            if left <= 0 and self.timer_finished_at:
-                return "00:00.0", "时间到！空格重置，↑↓ 改时长"
-            return hms(left), "倒计时 · {}".format(
-                "运行中" if self.timer_deadline is not None else "已暂停")
+            sub = self.timer_sub()
+            if self.cfg.SHOW_WALL_CLOCK:
+                sub = "{} · {}".format(wall_now(), sub)
+            return hms(self.timer_left(mono)), sub
 
         if self.mode == "mark":
             seg = self.mark_elapsed - self._last_node_elapsed
@@ -341,7 +345,22 @@ class ClockApp:
             return csec(seg), "距上一个节点 · 第{}个 · 总计{} · {}".format(
                 len(self.nodes), total, state)
 
-        return csec(self.sw_elapsed), self.stopwatch_sub()
+        sub = self.stopwatch_sub()
+        if self.cfg.SHOW_WALL_CLOCK:
+            sub = "{} · {}".format(wall_now(), sub)
+        return csec(self.sw_elapsed), sub
+
+    def timer_left(self, mono):
+        if self.timer_deadline is not None:
+            return max(0.0, self.timer_deadline - mono)
+        return self.timer_remaining
+
+    def timer_sub(self):
+        left = self.timer_left(time.monotonic())
+        if left <= 0 and self.timer_finished_at:
+            return "时间到！空格重置，↑↓ 改时长"
+        return "倒计时 · {}".format(
+            "运行中" if self.timer_deadline is not None else "已暂停")
 
     def node_list_text(self):
         if not self.nodes:
@@ -386,6 +405,13 @@ class ClockApp:
             utils.say(self.cfg.TTS_TEXT)
         self.lbl_time.configure(fg=self.cfg.FG_ALERT)
         self.root.after(1200, lambda: self.lbl_time.configure(fg=self.cfg.FG_TIMER))
+
+    def hotkey_mode(self, target):
+        """独立热键：直接启停某个计时器，必要时把面板切过去。"""
+        if self.mode != target:
+            self.mode = target
+            self.apply_mode()
+        self.toggle_run()
 
     def toggle_run(self):
         mono = time.monotonic()
@@ -496,6 +522,15 @@ class ClockApp:
             self.win.deiconify()
             utils.reassert_top(self.win)
 
+    def open_settings(self):
+        """打开设置界面（Ctrl+Alt+,），改完直接写回 config.py。"""
+        try:
+            import settings as settings_mod
+        except Exception as exc:
+            print("设置模块加载失败:", exc)
+            return
+        return settings_mod.open_dialog(self)
+
     # ------------------------------------------------------------ 拖动 / 置顶
     def drag_start(self, e):
         self._dx, self._dy = e.x_root, e.y_root
@@ -531,6 +566,10 @@ class ClockApp:
             (2, self.cfg.HOTKEY_TOGGLE, self.toggle_run, "toggle"),
             (3, self.cfg.HOTKEY_RESET, self.reset, "reset"),
             (4, self.cfg.HOTKEY_MARK, self.new_node, "mark"),
+            (5, self.cfg.HOTKEY_STOPWATCH, lambda: self.hotkey_mode("stopwatch"),
+             "stopwatch"),
+            (6, self.cfg.HOTKEY_TIMER, lambda: self.hotkey_mode("timer"), "timer"),
+            (7, self.cfg.HOTKEY_SETTINGS, self.open_settings, "settings"),
         ]
         used = set()
         for hid, text, handler, _name in specs:

@@ -43,6 +43,7 @@ class Config:
     START_MODE = "mark"       # 命令行启动时的默认模式：clock / timer / stopwatch / mark
     SHOW_SECONDS = True
     DATE_FORMAT = "%Y年%m月%d日 %A"   # %A 会显示成 周一/周二…
+    SHOW_WALL_CLOCK = True    # 秒表 / 定时 的副标题里是否附上当前挂钟时间
     SOUND = True              # 定时到点响铃
     TTS = False               # 定时到点用系统语音念一句
     TTS_TEXT = "时间到，休息一下"
@@ -55,7 +56,10 @@ class Config:
 
     # ---------------- 全局热键 ----------------
     HOTKEY_ENABLE = True
-    HOTKEY_CYCLE = "Ctrl+Alt+A"    # 循环切换模式
-    HOTKEY_TOGGLE = "Ctrl+Alt+S"   # 开始 / 暂停
-    HOTKEY_RESET = "Ctrl+Alt+R"    # 复位
-    HOTKEY_MARK = "Ctrl+Alt+M"     # 打点（只在打点模式生效）
+    HOTKEY_CYCLE = "Ctrl+Alt+A"        # 循环切换模式
+    HOTKEY_TOGGLE = "Ctrl+Alt+S"       # 开始 / 暂停（当前模式）
+    HOTKEY_RESET = "Ctrl+Alt+R"        # 复位（当前模式）
+    HOTKEY_MARK = "Ctrl+Alt+M"         # 打点
+    HOTKEY_STOPWATCH = "Ctrl+Alt+1"    # 一键启停秒表
+    HOTKEY_TIMER = "Ctrl+Alt+2"        # 一键启停定时
+    HOTKEY_SETTINGS = "Ctrl+Alt+,"     # 打开设置界面
